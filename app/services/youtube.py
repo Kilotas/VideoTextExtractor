@@ -27,7 +27,6 @@ YOUTUBE_URL_REGEX = re.compile(
 def extract_video_id(url: str) -> str:
     """Извлекаем ID из ссылки YouTube."""
     match = YOUTUBE_URL_REGEX.search(url)
-    print(match)
     if not match:
         raise ValueError("Не удалось извлечь ID видео из ссылки.")
     return match.group(1)
@@ -50,9 +49,30 @@ def get_video_transcript(video_url: str, language_priority=None) -> List[Dict]:
     for lang in language_priority:
         try:
             return YouTubeTranscriptApi.get_transcript(video_id, languages=[lang])
-        except (TranscriptsDisabled, NoTranscriptFound):
+        except TranscriptsDisabled:
+            raise RuntimeError("Автор запретил транскрипты для этого видео.")
+        except NoTranscriptFound:
             continue  # пробуем следующий язык
         except Exception:
             continue
 
-    raise RuntimeError("Нет доступного транскрипта ни на одном из указанных языков.")
+    # Если не нашли в приоритетных языках — пытаемся взять любой доступный
+    try:
+        transcripts = YouTubeTranscriptApi.list_transcripts(video_id)
+    except TranscriptsDisabled:
+        raise RuntimeError("Автор запретил транскрипты для этого видео.")
+    except Exception as exc:
+        raise RuntimeError(
+            f"Не удалось получить список доступных транскриптов: {exc}"
+        ) from exc
+
+    for transcript in transcripts:
+        try:
+            return transcript.fetch()
+        except Exception:
+            continue
+
+    raise RuntimeError(
+        "Нет доступного транскрипта ни на одном из указанных языков, "
+        "и YouTube не предоставляет альтернативы."
+    )
